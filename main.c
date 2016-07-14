@@ -7,6 +7,18 @@
 
 #define TABLE_QUERY "SELECT name FROM sqlite_master WHERE type = 'table';"
 #define ALL_QUERY "SELECT * FROM %s;"
+#define ALL_QUERY_SIZE 15
+
+typedef struct IteratorArgs {
+    sqlite3 *db;
+    long grandTotal;
+    char *format; 
+} IteratorArgs;
+
+typedef struct TableData {
+    long size;
+    char *name;
+} TableData;
 
 int 
 get_integer_size(sqlite_int64 value)
@@ -29,67 +41,43 @@ get_integer_size(sqlite_int64 value)
     return 0;
 }
 
-void printNode(ListNode *node){
-    printf("%s -> ", node->value);
+
+
+void printNode(ListNode *node, void *args){
+    IteratorArgs *iArgs = (IteratorArgs *)args;
+    TableData *data = (TableData *)node->value;
+
+    if(iArgs->format == NULL || 0 == strcmp(iArgs->format, "--csv")){
+        printf("%s,%lu,%lf\n", data->name, data->size, ((double)data->size * 100) / iArgs->grandTotal);
+    }else if(0 == strcmp(iArgs->format, "--table")){
+        printf("| %-30s | %-8lu | %-10lf |\n", data->name, data->size, ((double)data->size * 100) / iArgs->grandTotal);
+    }
 }
 
-void completeNode(){
-    printf("NULL \n");
+void completeNode(void *args){
+    IteratorArgs *iArgs = (IteratorArgs *)args;
+    printf("Grand Total: %lu\n", iArgs->grandTotal);
 }
 
-int 
-main(int argc, char *argv[])
-{
-    sqlite3 *db;
-    int rc;
-    if(argc != 2){
-        fprintf(stderr, "Usage : %s DATABASE \n", argv[0]);
-        return 1;
-    }
-
-    // Open up the database
-    rc = sqlite3_open(argv[1], &db);
-
-    // Log some output if we fail to open it
-    if(rc){
-        fprintf(stderr, "Error opening database: %s\n", sqlite3_errmsg(db));
-        sqlite3_close(db);
-        return 1;
-    }
+void getTableSize(ListNode *node, void *args){
+    IteratorArgs *iArgs = args;
 
     // Prepare the statement
     sqlite3_stmt *stmt; 
-    int col_count, 
-        i;
+    int col_count; 
 
     sqlite3_value *val;
     int col_type;
     const char *col_name;
     const unsigned char *col_val;
     long rowsize,cur_row_size,total; 
-    
     total = 0;
-   
-    ListNode *root;
-    // I want a list of all tables
-    if(sqlite3_prepare_v2(db, TABLE_QUERY, -1, &stmt, NULL) == SQLITE_OK){
-        // Iterate through the list of table names 
-        while(sqlite3_step(stmt) == SQLITE_ROW){
-            val = sqlite3_column_value(stmt, 0);
-            
-            col_val = sqlite3_value_text(val);
-            addToList(&root, col_val);
-
-        }
-        iterateList(root, &printNode, &completeNode);
-    }
-    // Finish off the first query with the table names
-    sqlite3_finalize(stmt);
-
-
+    
+    char *query = (char *)malloc(sizeof(char) * (ALL_QUERY_SIZE + strlen((char *)node->value)) + 1);
+    sprintf(query, ALL_QUERY, (char *)node->value);
+    
     // Here we will calculate the size of each table
-    if(0){
-    //if(sqlite3_prepare_v2(db, "", -1, &stmt, NULL) == SQLITE_OK){
+    if(sqlite3_prepare_v2(iArgs->db, query, -1, &stmt, NULL) == SQLITE_OK){
         // Lets get how many columns we are looking at 
         col_count = sqlite3_column_count(stmt);
 
@@ -97,7 +85,8 @@ main(int argc, char *argv[])
         while(sqlite3_step(stmt) == SQLITE_ROW){
             // reset our size counter
             rowsize = 0; 
-            
+
+            int i; 
             // Access each column for the row
             for(i = 0; i < col_count; i++){ 
                // pull out the value
@@ -133,14 +122,87 @@ main(int argc, char *argv[])
 
                rowsize += cur_row_size;
            }
-           printf("Rowsize = %lu bytes", rowsize);
+           // printf("Rowsize = %lu bytes", rowsize);
 
            total += rowsize;
-           printf("\n");
         }
-        printf("Total Query Size = %lu bytes", total);
+        iArgs->grandTotal += total;
+    }
+    
+    TableData *data = (TableData *)malloc(sizeof(TableData));
+    data->size = total;
+    data->name = (char *)node->value;
+    node->value = data;
+    free(query);
+}
+
+int 
+main(int argc, char *argv[])
+{
+    int rc;
+    sqlite3 *db;
+    if(argc < 2){
+        fprintf(stderr, "Usage : %s DATABASE \n", argv[0]);
+        return 1;
     }
 
+    if(NULL != argv[2] && strcmp(argv[2], "--table") && strcmp(argv[2], "--csv")){
+        fprintf(stderr, "Unrecognized option %s", argv[2]);
+        return 1;
+    }
+
+    // Open up the database
+    rc = sqlite3_open(argv[1], &db);
+
+    // Log some output if we fail to open it
+    if(rc){
+        fprintf(stderr, "Error opening database: %s\n", sqlite3_errmsg(db));
+        sqlite3_close(db);
+        return 1;
+    }
+
+    // Prepare the statement
+    sqlite3_stmt *stmt; 
+    const unsigned char *col_val;
+    unsigned char *col_val_cpy;
+   
+    ListNode *root = NULL;
+    
+    // I want a list of all tables
+    if(sqlite3_prepare_v2(db, TABLE_QUERY, -1, &stmt, NULL) == SQLITE_OK){
+        // Iterate through the list of table names 
+        while(sqlite3_step(stmt) == SQLITE_ROW){
+            // Get the value out
+            col_val = sqlite3_column_text(stmt, 0);
+
+            // Figure out the length of the string
+            int val_length = strlen((char *)col_val);
+           
+            // Allocate some memory to put the copy of the string
+            col_val_cpy = (unsigned char *)malloc(sizeof(unsigned char) * val_length + 1);
+
+            // Copy the data over
+            memcpy(col_val_cpy, col_val, val_length + 1);
+
+            // Add to list
+            addToList(&root, col_val_cpy);
+        }
+    }else{
+        fprintf(stderr, "There was an error with the SQL statement");
+        return 1;
+    }
+
+    // Finish off the first query with the table names
+    sqlite3_finalize(stmt);
+
+    //XXX: Bad code! We don't free the list or the args
+    IteratorArgs *args = (IteratorArgs *)malloc(sizeof(IteratorArgs));
+    args->db = db;
+    args->grandTotal = 0L;
+    args->format = argv[2]; // choose c for csv or t for table
+    iterateList(root, args, &getTableSize, &completeNode);
+
+    iterateList(root, args, &printNode, &completeNode);
     // Finish up and close the database
     sqlite3_close(db);
     return 0;

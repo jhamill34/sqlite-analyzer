@@ -15,10 +15,12 @@ int
 main(int argc, char *argv[])
 {
     ListNode *root;
-    
-    initNode(&root, "Hello");
+
+    const unsigned char *name = "Josh";
+
+    addToList(&root, "Hello");
     addToList(&root, "World");
-    addToList(&root, "Josh");
+    addToList(&root, (void *)name);
 
     iterateList(root, &nodePrint, &complete);
     return 0;

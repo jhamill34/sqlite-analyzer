@@ -4,7 +4,7 @@
 #include "list.h"
 
 void
-initNode(ListNode **node, const unsigned char *val)
+initNode(ListNode **node, void *val)
 {
     *node = (ListNode *)malloc(sizeof(ListNode));
 
@@ -13,7 +13,7 @@ initNode(ListNode **node, const unsigned char *val)
 }
 
 void
-addToList(ListNode **node, const unsigned char *value)
+addToList(ListNode **node, void *value)
 {
     ListNode *newNode;
     initNode(&newNode, value);
@@ -23,13 +23,13 @@ addToList(ListNode **node, const unsigned char *value)
 }
 
 void
-iterateList(ListNode *node, void(*callback)(ListNode *), void(*complete)(void))
+iterateList(ListNode *node, void *args, void(*callback)(ListNode *, void *), void(*complete)(void *))
 {
     ListNode *cur = node;
     while(cur != NULL){
-        callback(cur);
+        callback(cur, args);
         cur = cur->next;
     }
 
-    complete();
+    complete(args);
 }

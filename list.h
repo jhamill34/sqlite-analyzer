@@ -2,14 +2,14 @@
 #define LIST_H
 
 typedef struct ListNode{
-    const unsigned char *value;
+    void *value;
     struct ListNode *next;
 } ListNode;
 
-void initNode(ListNode **node, const unsigned char *val);
+void initNode(ListNode **node, void *val);
 
-void iterateList(ListNode *node, void(*callback)(ListNode *), void(*complete)(void));
+void addToList(ListNode **node, void *val);
 
-void addToList(ListNode **node, const unsigned char *val);
+void iterateList(ListNode *node, void *args, void(*callback)(ListNode *, void *), void(*complete)(void *));
 
 #endif
